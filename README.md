@@ -43,11 +43,14 @@ from whisper_plugin import WhisperSTT
 session = AgentSession(
     # ... other configuration
     stt=WhisperSTT(
-        model="deepdml/faster-whisper-large-v3-turbo-ct2",
-        language="en",
-        device="cuda",
-        compute_type="float16",
-    )
+            model="<local path>/faster-whisper-large-v3-turbo-ct2", # where the model's downloaded
+            language="zh", # zh/ja/.etc also supports auto
+            device="cuda",
+            compute_type="int8_float16", # best perf on GPU
+            model_cache_directory=False,
+            zh_lang=True,
+            init_prompt="以下是普通话的内容，请使用简体中文，并正确添加标点。" # optional in ZH case
+        )
 )
 ```
 
