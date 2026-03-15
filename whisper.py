@@ -45,6 +45,8 @@ class WhisperSTT(stt.STT):
         compute_type: Optional[str] = None,
         model_cache_directory: Optional[str] = None,
         warmup_audio: Optional[str] = None,
+        zh_lang: Optional[bool] = False,
+        init_prompt: Optional[str] = None
     ):
         """Initialize the WhisperSTT instance.
         
@@ -55,6 +57,8 @@ class WhisperSTT(stt.STT):
             compute_type: Compute type for inference (float16, int8, float32)
             model_cache_directory: Directory to store downloaded models
             warmup_audio: Path to audio file for model warmup
+            zh_lang: Whether the language is Chinese (False by default)
+            init_prompt: Initial prompt for the model (None by default)
         """
         super().__init__(
             capabilities=stt.STTCapabilities(streaming=False, interim_results=False)
@@ -68,7 +72,16 @@ class WhisperSTT(stt.STT):
             model_cache_directory=model_cache_directory,
             warmup_audio=warmup_audio
         )
-        
+
+        # 针对中文的改进
+        self._zh = zh_lang
+        if init_prompt is not None:
+            self._initial_prompt = init_prompt            
+        else:
+            if self._zh:
+                self._initial_prompt = "以下是普通话的内容，请使用简体中文，并正确添加标点。"
+            else:
+                self._initial_prompt = None
         self._model = None
         self._initialize_model()
         
@@ -187,16 +200,32 @@ class WhisperSTT(stt.STT):
             audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
             
             start_time = time.time()
+            # 原版的实现对中文极不友好
+            # segments, info = self._model.transcribe(
+            #     audio_array,
+            #     language=options.language,
+            #     beam_size=1,
+            #     best_of=1,
+            #     condition_on_previous_text=True,
+            #     vad_filter=False,
+            #     vad_parameters=dict(min_silence_duration_ms=500),
+            # )
+            # 改进，针对中文识别
+            beam_size=5 if self._zh else 1 # 增加beam_size 让判定上下文长一点
+            condition_on_previous_text=False if self._zh else True # 关闭前文关联
+            vad_filter = True if self._zh else False # 打开VAD来提高中文识别率
+            vad_min_silence_duration_ms = 1000 if self._zh else 500
+            initial_prompt = self._initial_prompt if self._zh else None # 对于中文要打开这个prompt
             segments, info = self._model.transcribe(
                 audio_array,
                 language=options.language,
-                beam_size=1,
+                beam_size=beam_size,
                 best_of=1,
-                condition_on_previous_text=True,
-                vad_filter=False,
-                vad_parameters=dict(min_silence_duration_ms=500),
+                condition_on_previous_text=condition_on_previous_text,
+                vad_filter=vad_filter,
+                vad_parameters=dict(min_silence_duration_ms=vad_min_silence_duration_ms), # vad一旦打开默认空白判定是2000ms，用该参数调整
+                initial_prompt=initial_prompt,
             )
-
             segments_list = list(segments)
             full_text = " ".join(segment.text.strip() for segment in segments_list)
             inference_time = time.time() - start_time
